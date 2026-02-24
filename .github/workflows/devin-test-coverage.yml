@@ -106,7 +106,7 @@ jobs:
               `- Test behavior, not implementation details.`,
             ].join('\n');
 
-            // Call Devin v3 API
+            // Call Devin API (v1 for personal API keys)
             const apiKey = process.env.DEVIN_API_KEY;
             if (!apiKey) {
               core.setFailed('DEVIN_API_KEY secret is not set.');
@@ -114,7 +114,7 @@ jobs:
             }
 
             const response = await fetch(
-              'https://api.devin.ai/v3/organizations/sessions',
+              'https://api.devin.ai/v1/sessions',
               {
                 method: 'POST',
                 headers: {
