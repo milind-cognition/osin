@@ -115,7 +115,6 @@ func main() {
 
 		// Try to load the token from storage
 		var accessData *osin.AccessData
-		var tokenType string
 		storage := server.Storage.Clone()
 		defer storage.Close()
 
@@ -124,19 +123,15 @@ func main() {
 			// Try refresh token first, then access token
 			if ad, err := storage.LoadRefresh(token); err == nil && ad != nil {
 				accessData = ad
-				tokenType = "refresh_token"
 			} else if ad, err := storage.LoadAccess(token); err == nil && ad != nil {
 				accessData = ad
-				tokenType = "access_token"
 			}
 		default:
 			// Try access token first, then refresh token
 			if ad, err := storage.LoadAccess(token); err == nil && ad != nil {
 				accessData = ad
-				tokenType = "access_token"
 			} else if ad, err := storage.LoadRefresh(token); err == nil && ad != nil {
 				accessData = ad
-				tokenType = "refresh_token"
 			}
 		}
 
@@ -153,10 +148,6 @@ func main() {
 			"token_type": sconfig.TokenType,
 			"exp":        accessData.CreatedAt.Add(time.Duration(accessData.ExpiresIn) * time.Second).Unix(),
 			"iat":        accessData.CreatedAt.Unix(),
-		}
-
-		if tokenType != "" {
-			response["token_type"] = tokenType
 		}
 
 		if accessData.Scope != "" {
