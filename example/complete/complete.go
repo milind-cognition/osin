@@ -89,12 +89,35 @@ func main() {
 	// Application home endpoint
 	http.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html><body>"))
+		w.Write([]byte("<h1>OAuth2 Demo - Multiple Client Types</h1>"))
 
-		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=1234&state=xyz&scope=everything&redirect_uri=%s\">Code</a><br/>", url.QueryEscape("http://localhost:14000/appauth/code"))))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=1234&state=xyz&scope=everything&redirect_uri=%s\">Implicit</a><br/>", url.QueryEscape("http://localhost:14000/appauth/token"))))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/password\">Password</a><br/>")))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/client_credentials\">Client Credentials</a><br/>")))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/assertion\">Assertion</a><br/>")))
+		// Confidential Client (server-side application with client secret)
+		w.Write([]byte("<h2>Confidential Client (Server-Side App)</h2>"))
+		w.Write([]byte("<p>Client ID: 1234 | Has secret | Full scope</p>"))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=1234&state=xyz&scope=everything&redirect_uri=%s\">Authorization Code</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/code"))))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=1234&state=xyz&scope=everything&redirect_uri=%s\">Implicit</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/token"))))
+		w.Write([]byte("<a href=\"/appauth/password\">Password</a><br/>"))
+		w.Write([]byte("<a href=\"/appauth/client_credentials\">Client Credentials</a><br/>"))
+		w.Write([]byte("<a href=\"/appauth/assertion\">Assertion</a><br/>"))
+
+		// Public Client (mobile app or SPA, no client secret)
+		w.Write([]byte("<h2>Public Client (Mobile App / SPA)</h2>"))
+		w.Write([]byte("<p>Client ID: public-app | No secret | Full scope</p>"))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=public-app&state=xyz&scope=everything&redirect_uri=%s\">Authorization Code (PKCE recommended)</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/code"))))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=public-app&state=xyz&scope=everything&redirect_uri=%s\">Implicit</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/token"))))
+
+		// Limited-Scope Client (third-party integration with restricted permissions)
+		w.Write([]byte("<h2>Limited-Scope Client (Third-Party Integration)</h2>"))
+		w.Write([]byte("<p>Client ID: limited-scope-app | Has secret | Read-only scope</p>"))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=limited-scope-app&state=xyz&scope=read&redirect_uri=%s\">Authorization Code (read-only)</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/limited/code"))))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=limited-scope-app&state=xyz&scope=read&redirect_uri=%s\">Implicit (read-only)</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/limited/token"))))
+		w.Write([]byte("<a href=\"/appauth/limited/client_credentials\">Client Credentials (read-only)</a><br/>"))
 
 		w.Write([]byte("</body></html>"))
 	})
@@ -280,6 +303,130 @@ func main() {
 		// download token
 		err := example.DownloadAccessToken(fmt.Sprintf("http://localhost:14000%s", aurl),
 			&osin.BasicAuth{Username: "1234", Password: "aabbccdd"}, jr)
+		if err != nil {
+			w.Write([]byte(err.Error()))
+			w.Write([]byte("<br/>"))
+		}
+
+		// show json error
+		if erd, ok := jr["error"]; ok {
+			w.Write([]byte(fmt.Sprintf("ERROR: %s<br/>\n", erd)))
+		}
+
+		// show json access token
+		if at, ok := jr["access_token"]; ok {
+			w.Write([]byte(fmt.Sprintf("ACCESS TOKEN: %s<br/>\n", at)))
+		}
+
+		w.Write([]byte(fmt.Sprintf("FULL RESULT: %+v<br/>\n", jr)))
+
+		if rt, ok := jr["refresh_token"]; ok {
+			rurl := fmt.Sprintf("/appauth/refresh?code=%s", rt)
+			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Refresh Token</a><br/>", rurl)))
+		}
+
+		if at, ok := jr["access_token"]; ok {
+			rurl := fmt.Sprintf("/appauth/info?code=%s", at)
+			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Info</a><br/>", rurl)))
+		}
+
+		w.Write([]byte("</body></html>"))
+	})
+
+	// Application destination - LIMITED-SCOPE CODE
+	http.HandleFunc("/appauth/limited/code", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+
+		code := r.FormValue("code")
+
+		w.Write([]byte("<html><body>"))
+		w.Write([]byte("APP AUTH - LIMITED-SCOPE CLIENT - CODE<br/>"))
+		defer w.Write([]byte("</body></html>"))
+
+		if code == "" {
+			w.Write([]byte("Nothing to do"))
+			return
+		}
+
+		jr := make(map[string]interface{})
+
+		// build access code url using the limited-scope client credentials
+		aurl := fmt.Sprintf(
+			"/token?grant_type=authorization_code&client_id=limited-scope-app&client_secret=eeffgghh&state=xyz&redirect_uri=%s&code=%s",
+			url.QueryEscape("http://localhost:14000/appauth/limited/code"),
+			url.QueryEscape(code))
+
+		// if parse, download and parse json
+		if r.FormValue("doparse") == "1" {
+			err := example.DownloadAccessToken(
+				fmt.Sprintf("http://localhost:14000%s", aurl),
+				&osin.BasicAuth{Username: "limited-scope-app", Password: "eeffgghh"}, jr)
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				w.Write([]byte("<br/>"))
+			}
+		}
+
+		// show json error
+		if erd, ok := jr["error"]; ok {
+			w.Write([]byte(fmt.Sprintf("ERROR: %s<br/>\n", erd)))
+		}
+
+		// show json access token
+		if at, ok := jr["access_token"]; ok {
+			w.Write([]byte(fmt.Sprintf("ACCESS TOKEN: %s<br/>\n", at)))
+		}
+
+		w.Write([]byte(fmt.Sprintf("FULL RESULT: %+v<br/>\n", jr)))
+
+		// output links
+		w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Goto Token URL</a><br/>", aurl)))
+
+		cururl := *r.URL
+		curq := cururl.Query()
+		curq.Add("doparse", "1")
+		cururl.RawQuery = curq.Encode()
+		w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Download Token</a><br/>", cururl.String())))
+
+		if rt, ok := jr["refresh_token"]; ok {
+			rurl := fmt.Sprintf("/appauth/refresh?code=%s", rt)
+			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Refresh Token</a><br/>", rurl)))
+		}
+
+		if at, ok := jr["access_token"]; ok {
+			rurl := fmt.Sprintf("/appauth/info?code=%s", at)
+			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Info</a><br/>", rurl)))
+		}
+	})
+
+	// Application destination - LIMITED-SCOPE TOKEN
+	http.HandleFunc("/appauth/limited/token", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+
+		w.Write([]byte("<html><body>"))
+		w.Write([]byte("APP AUTH - LIMITED-SCOPE CLIENT - TOKEN<br/>"))
+
+		w.Write([]byte("Response data in fragment - not accessible via server - Nothing to do"))
+
+		w.Write([]byte("</body></html>"))
+	})
+
+	// Application destination - LIMITED-SCOPE CLIENT_CREDENTIALS
+	http.HandleFunc("/appauth/limited/client_credentials", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+
+		w.Write([]byte("<html><body>"))
+		w.Write([]byte("APP AUTH - LIMITED-SCOPE CLIENT - CLIENT CREDENTIALS<br/>"))
+
+		jr := make(map[string]interface{})
+
+		// build access code url
+		aurl := fmt.Sprintf("/token?grant_type=client_credentials&scope=read")
+
+		// download token using the limited-scope client credentials
+		err := example.DownloadAccessToken(
+			fmt.Sprintf("http://localhost:14000%s", aurl),
+			&osin.BasicAuth{Username: "limited-scope-app", Password: "eeffgghh"}, jr)
 		if err != nil {
 			w.Write([]byte(err.Error()))
 			w.Write([]byte("<br/>"))
