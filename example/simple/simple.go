@@ -4,11 +4,14 @@ package main
 // http://localhost:14000/app
 
 import (
+	"encoding/json"
 	"fmt"
-	"github.com/openshift/osin"
-	"github.com/openshift/osin/example"
 	"net/http"
 	"net/url"
+	"time"
+
+	"github.com/openshift/osin"
+	"github.com/openshift/osin/example"
 )
 
 func main() {
@@ -60,6 +63,74 @@ func main() {
 			server.FinishInfoRequest(resp, r, ir)
 		}
 		osin.OutputJSON(resp, w, r)
+	})
+
+	// Token Introspection endpoint (RFC 7662)
+	http.HandleFunc("/introspect", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		// RFC 7662 requires POST method
+		if r.Method != "POST" {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(map[string]interface{}{"active": false})
+			return
+		}
+
+		r.ParseForm()
+		token := r.FormValue("token")
+		if token == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":             "invalid_request",
+				"error_description": "token parameter is required",
+			})
+			return
+		}
+
+		tokenTypeHint := r.FormValue("token_type_hint")
+
+		// Try to load the token from storage
+		var accessData *osin.AccessData
+		storage := server.Storage.Clone()
+		defer storage.Close()
+
+		switch tokenTypeHint {
+		case "refresh_token":
+			// Try refresh token first, then access token
+			if ad, err := storage.LoadRefresh(token); err == nil && ad != nil {
+				accessData = ad
+			} else if ad, err := storage.LoadAccess(token); err == nil && ad != nil {
+				accessData = ad
+			}
+		default:
+			// Try access token first, then refresh token
+			if ad, err := storage.LoadAccess(token); err == nil && ad != nil {
+				accessData = ad
+			} else if ad, err := storage.LoadRefresh(token); err == nil && ad != nil {
+				accessData = ad
+			}
+		}
+
+		// Token not found - return inactive per RFC 7662 Section 2.2
+		if accessData == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"active": false})
+			return
+		}
+
+		// Build RFC 7662 compliant response
+		response := map[string]interface{}{
+			"active":     !accessData.IsExpired(),
+			"client_id":  accessData.Client.GetId(),
+			"token_type": cfg.TokenType,
+			"exp":        accessData.CreatedAt.Add(time.Duration(accessData.ExpiresIn) * time.Second).Unix(),
+			"iat":        accessData.CreatedAt.Unix(),
+		}
+
+		if accessData.Scope != "" {
+			response["scope"] = accessData.Scope
+		}
+
+		json.NewEncoder(w).Encode(response)
 	})
 
 	// Application home endpoint
