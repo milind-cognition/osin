@@ -42,8 +42,9 @@ func HandleConsentPage(ar *osin.AuthorizeRequest, w http.ResponseWriter, r *http
 		if r.FormValue("deny_all") == "1" {
 			return true, ""
 		}
-		// Collect approved scopes from checkboxes
-		approved := r.Form["scope"]
+		// Use PostForm to read only POST body values, avoiding collision
+		// with the scope parameter in the URL query string.
+		approved := r.PostForm["approved_scope"]
 		return true, strings.Join(approved, " ")
 	}
 
@@ -71,8 +72,12 @@ func HandleConsentPage(ar *osin.AuthorizeRequest, w http.ResponseWriter, r *http
 	w.Write([]byte(fmt.Sprintf(`<form action="/authorize?%s" method="POST">`, r.URL.RawQuery)))
 	w.Write([]byte(`<input type="hidden" name="consent_submitted" value="1"/>`))
 
+	// Forward login credentials so HandleLoginPage succeeds on the consent POST
+	w.Write([]byte(fmt.Sprintf(`<input type="hidden" name="login" value="%s"/>`, r.FormValue("login"))))
+	w.Write([]byte(fmt.Sprintf(`<input type="hidden" name="password" value="%s"/>`, r.FormValue("password"))))
+
 	for _, scope := range requestedScopes {
-		w.Write([]byte(fmt.Sprintf(`<div class="scope-item"><label><input type="checkbox" name="scope" value="%s" checked/> %s</label></div>`, scope, scope)))
+		w.Write([]byte(fmt.Sprintf(`<div class="scope-item"><label><input type="checkbox" name="approved_scope" value="%s" checked/> %s</label></div>`, scope, scope)))
 	}
 
 	w.Write([]byte(`<br/><input type="submit" class="btn btn-approve" value="Approve Selected"/>`))
