@@ -1,0 +1,92 @@
+name: Devin Test Coverage
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  trigger-devin-test-coverage:
+    runs-on: ubuntu-latest
+    # Skip PRs created by Devin to avoid infinite loops
+    if: "!contains(github.head_ref, 'devin/')"
+    steps:
+      - name: Fetch PR diff and write to file
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const { data: diff } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              mediaType: { format: 'diff' },
+            });
+
+            const MAX_DIFF_LENGTH = 10000;
+            const diffStr = typeof diff === 'string'
+              ? diff
+              : String(diff);
+            const truncated = diffStr.length > MAX_DIFF_LENGTH
+              ? diffStr.substring(0, MAX_DIFF_LENGTH) + '\n... (truncated)'
+              : diffStr;
+
+            fs.writeFileSync('/tmp/pr_diff.txt', truncated);
+
+      - name: Trigger Devin session for test coverage
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          PR_URL="https://github.com/${REPO}/pull/${PR_NUMBER}"
+          DIFF=$(cat /tmp/pr_diff.txt)
+
+          # Build the prompt, then safely encode it as JSON with jq
+          PROMPT="A pull request has been opened on ${REPO}: ${PR_URL}
+
+          PR #${PR_NUMBER}: ${PR_TITLE}
+
+          Your task:
+          1. Review the PR diff to understand what was changed.
+          2. Determine whether the changes warrant additional test coverage.
+             Changes that typically DO need tests: new functions/methods,
+             bug fixes, new features, refactored logic, new API endpoints.
+             Changes that typically DO NOT need tests: documentation-only
+             changes, CI/CD config changes, dependency bumps, formatting.
+          3. If additional test coverage IS warranted:
+             - Check out the PR branch.
+             - Write meaningful tests following existing test conventions.
+             - Prefer unit tests, use descriptive names, test edge cases.
+             - Make sure existing tests still pass.
+             - Push your changes to the same PR branch.
+          4. If additional test coverage is NOT warranted, post a comment
+             on the PR explaining why no tests are needed, then end.
+
+          Diff (may be truncated):
+          ${DIFF}"
+
+          # Create Devin session via v3 API
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://api.devin.ai/v3/organizations/sessions" \
+            -H "Authorization: Bearer ${DEVIN_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg prompt "$PROMPT" '{prompt: $prompt}')")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            SESSION_URL=$(echo "$BODY" | jq -r \
+              '.url // .session_url // "unknown"')
+            SESSION_ID=$(echo "$BODY" | jq -r \
+              '.session_id // .devin_id // "unknown"')
+            echo "Devin session created successfully!"
+            echo "Session ID: ${SESSION_ID}"
+            echo "Session URL: ${SESSION_URL}"
+          else
+            echo "Failed to create Devin session (HTTP ${HTTP_CODE}):"
+            echo "$BODY"
+            exit 1
+          fi
