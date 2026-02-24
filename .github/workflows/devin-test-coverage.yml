@@ -7,10 +7,11 @@ on:
 jobs:
   trigger-devin-test-coverage:
     runs-on: ubuntu-latest
-    # Skip PRs created by Devin to avoid infinite loops
+    # Skip PRs whose branch name contains 'devin-test-coverage'
+    # to avoid the test-coverage session re-triggering on its
+    # own follow-up PRs
     if: >-
-      !contains(github.head_ref, 'devin/')
-      && !contains(github.actor, 'devin')
+      !contains(github.head_ref, 'devin-test-coverage')
     steps:
       - name: Build prompt and trigger Devin session
         id: devin
@@ -86,7 +87,8 @@ jobs:
               `      new).`,
               `   g. Create a new PR that targets the same`,
               `      branch (${branch}) with the additional`,
-              `      test coverage.`,
+              `      test coverage. Name your branch with a`,
+              `      'devin-test-coverage/' prefix.`,
               `   h. Reference the original PR #${prNumber}`,
               `      in your PR description.`,
               ``,
