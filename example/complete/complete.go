@@ -5,10 +5,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/openshift/osin"
-	"github.com/openshift/osin/example"
 	"net/http"
 	"net/url"
+	"strings"
+
+	"github.com/openshift/osin"
+	"github.com/openshift/osin/example"
 )
 
 func main() {
@@ -26,11 +28,25 @@ func main() {
 		defer resp.Close()
 
 		if ar := server.HandleAuthorizeRequest(resp, r); ar != nil {
+			// Step 1: Handle login
 			if !example.HandleLoginPage(ar, w, r) {
 				return
 			}
-			ar.UserData = struct{ Login string }{Login: "test"}
-			ar.Authorized = true
+
+			// Step 2: Handle consent (scope approval)
+			consented, approvedScopes := example.HandleConsentPage(ar, w, r)
+			if !consented {
+				return
+			}
+
+			// If user denied all scopes, deny the authorization
+			if approvedScopes == "" {
+				ar.Authorized = false
+			} else {
+				ar.Scope = approvedScopes
+				ar.UserData = struct{ Login string }{Login: "test"}
+				ar.Authorized = true
+			}
 			server.FinishAuthorizeRequest(resp, r, ar)
 		}
 		if resp.IsError && resp.InternalError != nil {
@@ -90,11 +106,11 @@ func main() {
 	http.HandleFunc("/app", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html><body>"))
 
-		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=1234&state=xyz&scope=everything&redirect_uri=%s\">Code</a><br/>", url.QueryEscape("http://localhost:14000/appauth/code"))))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=1234&state=xyz&scope=everything&redirect_uri=%s\">Implicit</a><br/>", url.QueryEscape("http://localhost:14000/appauth/token"))))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/password\">Password</a><br/>")))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/client_credentials\">Client Credentials</a><br/>")))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/assertion\">Assertion</a><br/>")))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=1234&state=xyz&scope=read+write+admin&redirect_uri=%s\">Code</a><br/>", url.QueryEscape("http://localhost:14000/appauth/code"))))
+			w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=1234&state=xyz&scope=read+write+admin&redirect_uri=%s\">Implicit</a><br/>", url.QueryEscape("http://localhost:14000/appauth/token"))))
+			w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/password\">Password</a><br/>")))
+			w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/client_credentials\">Client Credentials</a><br/>")))
+			w.Write([]byte(fmt.Sprintf("<a href=\"/appauth/assertion\">Assertion</a><br/>")))
 
 		w.Write([]byte("</body></html>"))
 	})
@@ -397,6 +413,22 @@ func main() {
 		// show json access token
 		if at, ok := jr["access_token"]; ok {
 			w.Write([]byte(fmt.Sprintf("ACCESS TOKEN: %s<br/>\n", at)))
+		}
+
+		// show granted scopes
+		if scope, ok := jr["scope"]; ok {
+			scopeStr := fmt.Sprintf("%v", scope)
+			scopes := strings.Fields(scopeStr)
+			w.Write([]byte("<br/><strong>GRANTED SCOPES:</strong><br/>\n"))
+			if len(scopes) == 0 {
+				w.Write([]byte("No scopes granted<br/>\n"))
+			} else {
+				w.Write([]byte("<ul>\n"))
+				for _, s := range scopes {
+					w.Write([]byte(fmt.Sprintf("<li>%s</li>\n", s)))
+				}
+				w.Write([]byte("</ul>\n"))
+			}
 		}
 
 		w.Write([]byte(fmt.Sprintf("FULL RESULT: %+v<br/>\n", jr)))
