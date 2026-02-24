@@ -105,10 +105,10 @@ func main() {
 		// Public Client (mobile app or SPA, no client secret)
 		w.Write([]byte("<h2>Public Client (Mobile App / SPA)</h2>"))
 		w.Write([]byte("<p>Client ID: public-app | No secret | Full scope</p>"))
-		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=public-app&state=xyz&scope=everything&redirect_uri=%s\">Authorization Code (PKCE recommended)</a><br/>",
-			url.QueryEscape("http://localhost:14000/appauth/code"))))
+		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=code&client_id=public-app&state=xyz&scope=everything&redirect_uri=%s\">Authorization Code</a><br/>",
+			url.QueryEscape("http://localhost:14000/appauth/public/code"))))
 		w.Write([]byte(fmt.Sprintf("<a href=\"/authorize?response_type=token&client_id=public-app&state=xyz&scope=everything&redirect_uri=%s\">Implicit</a><br/>",
-			url.QueryEscape("http://localhost:14000/appauth/token"))))
+			url.QueryEscape("http://localhost:14000/appauth/public/token"))))
 
 		// Limited-Scope Client (third-party integration with restricted permissions)
 		w.Write([]byte("<h2>Limited-Scope Client (Third-Party Integration)</h2>"))
@@ -329,6 +329,83 @@ func main() {
 			rurl := fmt.Sprintf("/appauth/info?code=%s", at)
 			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Info</a><br/>", rurl)))
 		}
+
+		w.Write([]byte("</body></html>"))
+	})
+
+	// Application destination - PUBLIC CLIENT CODE
+	http.HandleFunc("/appauth/public/code", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+
+		code := r.FormValue("code")
+
+		w.Write([]byte("<html><body>"))
+		w.Write([]byte("APP AUTH - PUBLIC CLIENT - CODE<br/>"))
+		defer w.Write([]byte("</body></html>"))
+
+		if code == "" {
+			w.Write([]byte("Nothing to do"))
+			return
+		}
+
+		jr := make(map[string]interface{})
+
+		// build access code url - public client has no secret
+		aurl := fmt.Sprintf(
+			"/token?grant_type=authorization_code&client_id=public-app&state=xyz&redirect_uri=%s&code=%s",
+			url.QueryEscape("http://localhost:14000/appauth/public/code"),
+			url.QueryEscape(code))
+
+		// if parse, download and parse json (no basic auth for public client)
+		if r.FormValue("doparse") == "1" {
+			err := example.DownloadAccessToken(
+				fmt.Sprintf("http://localhost:14000%s", aurl), nil, jr)
+			if err != nil {
+				w.Write([]byte(err.Error()))
+				w.Write([]byte("<br/>"))
+			}
+		}
+
+		// show json error
+		if erd, ok := jr["error"]; ok {
+			w.Write([]byte(fmt.Sprintf("ERROR: %s<br/>\n", erd)))
+		}
+
+		// show json access token
+		if at, ok := jr["access_token"]; ok {
+			w.Write([]byte(fmt.Sprintf("ACCESS TOKEN: %s<br/>\n", at)))
+		}
+
+		w.Write([]byte(fmt.Sprintf("FULL RESULT: %+v<br/>\n", jr)))
+
+		// output links
+		w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Goto Token URL</a><br/>", aurl)))
+
+		cururl := *r.URL
+		curq := cururl.Query()
+		curq.Add("doparse", "1")
+		cururl.RawQuery = curq.Encode()
+		w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Download Token</a><br/>", cururl.String())))
+
+		if rt, ok := jr["refresh_token"]; ok {
+			rurl := fmt.Sprintf("/appauth/refresh?code=%s", rt)
+			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Refresh Token</a><br/>", rurl)))
+		}
+
+		if at, ok := jr["access_token"]; ok {
+			rurl := fmt.Sprintf("/appauth/info?code=%s", at)
+			w.Write([]byte(fmt.Sprintf("<a href=\"%s\">Info</a><br/>", rurl)))
+		}
+	})
+
+	// Application destination - PUBLIC CLIENT TOKEN
+	http.HandleFunc("/appauth/public/token", func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+
+		w.Write([]byte("<html><body>"))
+		w.Write([]byte("APP AUTH - PUBLIC CLIENT - TOKEN<br/>"))
+
+		w.Write([]byte("Response data in fragment - not accessible via server - Nothing to do"))
 
 		w.Write([]byte("</body></html>"))
 	})

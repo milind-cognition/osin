@@ -31,7 +31,7 @@ func NewTestStorage() *TestStorage {
 	r.clients["public-app"] = &osin.DefaultClient{
 		Id:          "public-app",
 		Secret:      "",
-		RedirectUri: "http://localhost:14000/appauth",
+		RedirectUri: "http://localhost:14000/appauth/public",
 	}
 
 	// Limited-scope client - represents a third-party integration with restricted permissions
