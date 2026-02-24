@@ -20,10 +20,25 @@ func NewTestStorage() *TestStorage {
 		refresh:   make(map[string]string),
 	}
 
+	// Confidential client - represents a server-side application with a client secret
 	r.clients["1234"] = &osin.DefaultClient{
 		Id:          "1234",
 		Secret:      "aabbccdd",
 		RedirectUri: "http://localhost:14000/appauth",
+	}
+
+	// Public client - represents a mobile app or SPA with no client secret
+	r.clients["public-app"] = &osin.DefaultClient{
+		Id:          "public-app",
+		Secret:      "",
+		RedirectUri: "http://localhost:14000/appauth/public",
+	}
+
+	// Limited-scope client - represents a third-party integration with restricted permissions
+	r.clients["limited-scope-app"] = &osin.DefaultClient{
+		Id:          "limited-scope-app",
+		Secret:      "eeffgghh",
+		RedirectUri: "http://localhost:14000/appauth/limited",
 	}
 
 	return r
