@@ -4,14 +4,18 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+# Naming conventions used to prevent infinite loops:
+#   Branch: devin-test-coverage/*
+#   PR title prefix: [test-coverage]
+# PRs matching EITHER convention are skipped.
+
 jobs:
   trigger-devin-test-coverage:
     runs-on: ubuntu-latest
-    # Skip PRs whose branch name contains 'devin-test-coverage'
-    # to avoid the test-coverage session re-triggering on its
-    # own follow-up PRs
     if: >-
-      !contains(github.head_ref, 'devin-test-coverage')
+      !contains(github.head_ref, 'devin-test-coverage/')
+      && !startsWith(github.event.pull_request.title,
+         '[test-coverage]')
     steps:
       - name: Build prompt and trigger Devin session
         id: devin
@@ -21,12 +25,16 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prNumber = context.payload.pull_request.number;
-            const prTitle = context.payload.pull_request.title;
-            const prUrl = context.payload.pull_request.html_url;
+            const prNumber =
+              context.payload.pull_request.number;
+            const prTitle =
+              context.payload.pull_request.title;
+            const prUrl =
+              context.payload.pull_request.html_url;
             const repo =
               `${context.repo.owner}/${context.repo.repo}`;
-            const branch = context.payload.pull_request.head.ref;
+            const branch =
+              context.payload.pull_request.head.ref;
 
             // Fetch changed files
             const { data: files } =
@@ -44,7 +52,6 @@ jobs:
               )
               .join('\n');
 
-            // Build prompt in JS to avoid shell injection
             const prompt = [
               `You are reviewing PR #${prNumber}`,
               `("${prTitle}") in the repository ${repo}.`,
@@ -52,19 +59,17 @@ jobs:
               `PR URL: ${prUrl}`,
               `Branch: ${branch}`,
               ``,
-              `The following files were changed in this PR:`,
+              `Changed files:`,
               changedFiles,
               ``,
               `Your task:`,
-              `1. First, determine whether this PR contains`,
-              `   changes that would benefit from additional`,
-              `   test coverage. Changes that typically benefit`,
-              `   include: new functions/methods, bug fixes,`,
-              `   new features, refactored logic, or changed`,
-              `   behavior. Changes that typically do NOT need`,
-              `   tests include: documentation-only changes,`,
-              `   CI/CD config changes, dependency bumps, or`,
-              `   cosmetic/formatting changes.`,
+              `1. Determine whether this PR would benefit from`,
+              `   additional test coverage. Changes that`,
+              `   typically benefit: new functions/methods, bug`,
+              `   fixes, new features, refactored logic, or`,
+              `   changed behavior. Changes that typically do`,
+              `   NOT need tests: documentation-only, CI/CD`,
+              `   config, dependency bumps, or formatting.`,
               ``,
               `2. If the PR does NOT justify additional test`,
               `   coverage, briefly explain why and end the`,
@@ -78,17 +83,23 @@ jobs:
               `   c. Review existing tests to understand`,
               `      current coverage and testing patterns.`,
               `   d. Write new tests or extend existing tests`,
-              `      to cover the changes introduced by this`,
-              `      PR.`,
+              `      to cover the changes in this PR.`,
               `   e. Follow the existing test conventions in`,
-              `      the repo (test framework, file naming,`,
+              `      the repo (framework, file naming,`,
               `      assertion style, etc.).`,
               `   f. Make sure all tests pass (existing and`,
               `      new).`,
-              `   g. Create a new PR that targets the same`,
-              `      branch (${branch}) with the additional`,
-              `      test coverage. Name your branch with a`,
-              `      'devin-test-coverage/' prefix.`,
+              `   g. Create a new PR targeting the same branch`,
+              `      (${branch}) with the additional test`,
+              `      coverage.`,
+              ``,
+              `   IMPORTANT naming conventions for your PR`,
+              `   (required to prevent infinite loops):`,
+              `   - Branch name MUST start with:`,
+              `     devin-test-coverage/`,
+              `   - PR title MUST start with:`,
+              `     [test-coverage]`,
+              ``,
               `   h. Reference the original PR #${prNumber}`,
               `      in your PR description.`,
               ``,
@@ -101,15 +112,17 @@ jobs:
               `- Mock external dependencies.`,
               `- Test edge cases and error conditions, not just`,
               `  happy paths.`,
-              `- Aim for meaningful coverage, not 100% coverage.`,
+              `- Aim for meaningful coverage, not 100%.`,
               `- Keep tests fast.`,
               `- Test behavior, not implementation details.`,
             ].join('\n');
 
-            // Call Devin API (v1 for personal API keys)
+            // Call Devin API
             const apiKey = process.env.DEVIN_API_KEY;
             if (!apiKey) {
-              core.setFailed('DEVIN_API_KEY secret is not set.');
+              core.setFailed(
+                'DEVIN_API_KEY secret is not set.'
+              );
               return;
             }
 
@@ -140,7 +153,9 @@ jobs:
             const sessionId =
               body.session_id || body.id || 'N/A';
 
-            core.info(`Devin session created: ${sessionId}`);
+            core.info(
+              `Devin session created: ${sessionId}`
+            );
             core.info(`Session URL: ${sessionUrl}`);
             core.setOutput('session_url', sessionUrl);
             core.setOutput('session_id', sessionId);
@@ -161,14 +176,14 @@ jobs:
             const body = [
               marker,
               '**Devin Test Coverage** - A Devin session has',
-              'been triggered to analyze this PR and add test',
-              'coverage if needed.',
+              'been triggered to analyze this PR and add',
+              'test coverage if needed.',
               '',
               `[View Devin session](${sessionUrl})`,
             ].join('\n');
 
-            // Update existing comment to avoid spam on
-            // synchronize events
+            // Update existing comment instead of creating
+            // duplicates on synchronize events
             const { data: comments } =
               await github.rest.issues.listComments({
                 owner: context.repo.owner,
