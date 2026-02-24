@@ -90,6 +90,22 @@ func CheckBearerAuth(r *http.Request) *BearerAuth {
 	return &BearerAuth{Code: token}
 }
 
+// SanitizeBaseURI trims trailing slashes and query strings from a
+// base redirect URI so comparisons are consistent.
+func SanitizeBaseURI(uri string) (string, error) {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return "", err
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	result := strings.TrimRight(parsed.String(), "/")
+	if result == "" {
+		return "", errors.New("empty URI after sanitization")
+	}
+	return result, nil
+}
+
 // getClientAuth checks client basic authentication in params if allowed,
 // otherwise gets it from the header.
 // Sets an error on the response if no auth is present or a server error occurs.
